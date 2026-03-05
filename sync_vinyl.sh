@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+set -a
+source ~/.vinyl.env
+set +a
+
 MANIFEST=~/.olaf/stored.txt
 touch "$MANIFEST"
 mkdir -p ~/vinyl-audio/converted
