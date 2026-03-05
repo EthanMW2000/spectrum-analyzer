@@ -25,7 +25,7 @@ AUDIO_DEVICE_INDEX = 0      # ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
 SHAZAM_INTERVAL    = 5      # seconds between identification attempts
-USE_CUSTOM_IDENTIFY = True
+USE_CUSTOM_IDENTIFY = False
 WINDOW_W   = 800    # only used when FULLSCREEN = False
 WINDOW_H   = 480    # only used when FULLSCREEN = False
 
