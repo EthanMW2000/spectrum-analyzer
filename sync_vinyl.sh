@@ -1,19 +1,26 @@
 #!/bin/bash
 set -e
 
-# Pull audio files from S3
-aws s3 sync s3://ethanwells-photography/vinyl/audio/ ~/vinyl-audio/
+MANIFEST=~/.olaf/stored.txt
+touch "$MANIFEST"
+mkdir -p ~/vinyl-audio/converted
 
-# Convert + ingest into Olaf
-for src in ~/vinyl-audio/*.wav ~/vinyl-audio/*.flac ~/vinyl-audio/*.mp3; do
-  [ -f "$src" ] || continue
-  base=$(basename "$src" | sed 's/\.[^.]*$//')
-  wav=~/vinyl-audio/converted/${base}.wav
-  if [ ! -f "$wav" ]; then
-    mkdir -p ~/vinyl-audio/converted
-    ffmpeg -i "$src" -ar 16000 -ac 1 -y "$wav" 2>/dev/null
+# List remote tracks, download + convert + ingest only new ones
+aws s3 ls s3://ethanwells-photography/vinyl/audio/ | awk '{print $4}' | while read -r filename; do
+  [ -z "$filename" ] && continue
+  base="${filename%.*}"
+
+  if grep -qxF "$base" "$MANIFEST"; then
+    continue
   fi
+
+  echo "New track: $filename"
+  aws s3 cp "s3://ethanwells-photography/vinyl/audio/$filename" ~/vinyl-audio/"$filename"
+
+  wav=~/vinyl-audio/converted/${base}.wav
+  ffmpeg -i ~/vinyl-audio/"$filename" -ar 16000 -ac 1 -y "$wav" 2>/dev/null
   olaf store "$wav"
+  echo "$base" >> "$MANIFEST"
 done
 
 # Pull collection metadata
