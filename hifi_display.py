@@ -132,7 +132,7 @@ class AudioEngine:
 
     def _read_loop(self):
         FFT_SIZE    = 2048
-        log_edges   = np.logspace(np.log10(30.0), np.log10(5000.0), NUM_BARS + 1)
+        log_edges   = np.logspace(np.log10(30.0), np.log10(8000.0), NUM_BARS + 1)
         freqs       = np.fft.rfftfreq(FFT_SIZE, 1.0 / RATE)
         fft_buf     = np.zeros(FFT_SIZE, dtype=np.float32)
         freq_boost  = np.linspace(1.0, 3.5, NUM_BARS)
