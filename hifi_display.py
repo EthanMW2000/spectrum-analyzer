@@ -25,7 +25,12 @@ AUDIO_DEVICE_INDEX = 0      # ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
 SHAZAM_INTERVAL    = 5      # seconds between identification attempts
-USE_CUSTOM_IDENTIFY = False
+IDENTIFY_MODE      = "olaf"  # "olaf" | "shazam" | "shazam+collection"
+IDENTIFY_SCRIPTS   = {
+    "olaf": "olaf_proc.py",
+    "shazam": "shazam_proc.py",
+    "shazam+collection": "identify_proc.py",
+}
 WINDOW_W   = 800    # only used when FULLSCREEN = False
 WINDOW_H   = 480    # only used when FULLSCREEN = False
 
@@ -267,7 +272,7 @@ class ShazamWorker:
         self._running = True
         self._thread  = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
+        tag = IDENTIFY_MODE.upper()
         print(f"{tag}: worker started", flush=True)
 
     def _run(self):
@@ -276,9 +281,9 @@ class ShazamWorker:
         import base64
         import tempfile
 
-        script_name = 'identify_proc.py' if USE_CUSTOM_IDENTIFY else 'shazam_proc.py'
+        script_name = IDENTIFY_SCRIPTS[IDENTIFY_MODE]
         script = os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)
-        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
+        tag = IDENTIFY_MODE.upper()
 
         while self._running:
             time.sleep(SHAZAM_INTERVAL)
@@ -361,7 +366,7 @@ class ShazamWorker:
                 'art': None, 'bg': None,
                 'status': 'Listening...',
             }
-        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
+        tag = IDENTIFY_MODE.upper()
         print(f"{tag}: reset for new album", flush=True)
 
     def stop(self):
