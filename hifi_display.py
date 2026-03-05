@@ -25,6 +25,7 @@ AUDIO_DEVICE_INDEX = 0      # ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
 SHAZAM_INTERVAL    = 5      # seconds between identification attempts
+USE_CUSTOM_IDENTIFY = True
 WINDOW_W   = 800    # only used when FULLSCREEN = False
 WINDOW_H   = 480    # only used when FULLSCREEN = False
 
@@ -266,7 +267,8 @@ class ShazamWorker:
         self._running = True
         self._thread  = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
-        print("SHAZAM: worker started", flush=True)
+        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
+        print(f"{tag}: worker started", flush=True)
 
     def _run(self):
         import subprocess
@@ -274,14 +276,18 @@ class ShazamWorker:
         import base64
         import tempfile
 
-        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'shazam_proc.py')
+        script_name = 'identify_proc.py' if USE_CUSTOM_IDENTIFY else 'shazam_proc.py'
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), script_name)
+        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
 
         while self._running:
             time.sleep(SHAZAM_INTERVAL)
             if not self._running:
                 break
             try:
-                print("SHAZAM: attempting identification...", flush=True)
+                if self.audio.get_rms() < RMS_THRESHOLD:
+                    continue
+                print(f"{tag}: attempting identification...", flush=True)
                 wav_bytes = self.audio.get_audio_buffer_wav()
 
                 with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as tmp:
@@ -300,13 +306,13 @@ class ShazamWorker:
                         pass
 
                 if proc.stderr:
-                    print(f"SHAZAM STDERR: {proc.stderr.strip()}", flush=True)
+                    print(f"{tag} STDERR: {proc.stderr.strip()}", flush=True)
                 if proc.returncode != 0:
-                    print(f"SHAZAM: subprocess exited with code {proc.returncode}", flush=True)
+                    print(f"{tag}: subprocess exited with code {proc.returncode}", flush=True)
                     continue
 
                 stdout = proc.stdout.strip()
-                print(f"SHAZAM: got response ({len(stdout)} bytes)", flush=True)
+                print(f"{tag}: got response ({len(stdout)} bytes)", flush=True)
                 result = json.loads(stdout)
                 if result is None:
                     with self._lock:
@@ -326,9 +332,9 @@ class ShazamWorker:
                     if art_bytes and (artist_changed or not self._state.get('art')):
                         self._state['art'] = None
                         self._state['_art_bytes'] = art_bytes
-                    print(f"SHAZAM: '{result['title']}' by {result['artist']}", flush=True)
+                    print(f"{tag}: '{result['title']}' by {result['artist']}", flush=True)
             except Exception as e:
-                print(f"SHAZAM WORKER: {e}", flush=True)
+                print(f"{tag} WORKER: {e}", flush=True)
 
     def get_state(self):
         with self._lock:
@@ -355,7 +361,8 @@ class ShazamWorker:
                 'art': None, 'bg': None,
                 'status': 'Listening...',
             }
-        print("SHAZAM: reset for new album", flush=True)
+        tag = 'IDENTIFY' if USE_CUSTOM_IDENTIFY else 'SHAZAM'
+        print(f"{tag}: reset for new album", flush=True)
 
     def stop(self):
         self._running = False
