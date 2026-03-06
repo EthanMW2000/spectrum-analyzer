@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Vintage HiFi Display
-Real-time spectrum analyser with Shazam song identification.
+Real-time spectrum analyser with song identification.
 TEST_MODE uses fake audio data; production mode captures via PyAudio.
 """
 
@@ -24,7 +24,7 @@ FULLSCREEN         = True
 AUDIO_DEVICE_INDEX = 0      # ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
-SHAZAM_INTERVAL    = 5      # seconds between identification attempts
+IDENTIFY_INTERVAL  = 2      # seconds between identification attempts
 IDENTIFY_MODE      = "olaf"  # "olaf" | "shazam" | "shazam+collection"
 IDENTIFY_SCRIPTS   = {
     "olaf": "olaf_proc.py",
@@ -106,7 +106,7 @@ class AudioEngine:
         self._lock        = threading.Lock()
         self._last_update = time.time()
 
-        buf_seconds     = SHAZAM_INTERVAL + 1
+        buf_seconds     = 15
         self._buf_len   = RATE * buf_seconds
         self._audio_buf = np.zeros(self._buf_len, dtype=np.int16)
         self._buf_pos   = 0
@@ -258,7 +258,7 @@ class AudioEngine:
 
 # ─── SHAZAM WORKER (production) ─────────────────────────────────────────────
 
-class ShazamWorker:
+class IdentifyWorker:
     def __init__(self, audio_engine):
         self.audio    = audio_engine
         self._state   = {
@@ -288,7 +288,7 @@ class ShazamWorker:
         tag = IDENTIFY_MODE.upper()
 
         while self._running:
-            time.sleep(SHAZAM_INTERVAL)
+            time.sleep(IDENTIFY_INTERVAL)
             if not self._running:
                 break
             try:
@@ -738,11 +738,11 @@ def main():
         from fake_audio import FakeAudioEngine, FAKE_SONG
         audio      = FakeAudioEngine(num_bars=NUM_BARS)
         song_state = FAKE_SONG
-        shazam     = None
+        identifier     = None
         idle       = False
     else:
         audio      = AudioEngine()
-        shazam     = ShazamWorker(audio)
+        identifier     = IdentifyWorker(audio)
         song_state = None
         idle       = False
 
@@ -769,7 +769,7 @@ def main():
 
             if not TEST_MODE:
                 tap_locked = time.time() - last_tap_time < TAP_LOCK_SECONDS
-                song_state = shazam.get_state()
+                song_state = identifier.get_state()
 
                 stale = time.time() - audio._last_update
                 if stale > 3.0:
@@ -795,7 +795,7 @@ def main():
                         idle = False
                     elif time.time() - last_sound_time > IDLE_TIMEOUT:
                         if not idle:
-                            shazam.reset()
+                            identifier.reset()
                         idle = True
 
             render.draw(audio.get_bars(), song_state, idle)
@@ -807,8 +807,8 @@ def main():
             print(f"MAIN LOOP ERROR: {e}", flush=True)
             time.sleep(0.1)
 
-    if shazam:
-        shazam.stop()
+    if identifier:
+        identifier.stop()
     if not TEST_MODE:
         audio.close()
     pygame.quit()
