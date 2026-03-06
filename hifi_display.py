@@ -270,6 +270,8 @@ class ShazamWorker:
         }
         self._lock    = threading.Lock()
         self._running = True
+        self._pending_title = None
+        self._pending_count = 0
         self._thread  = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         tag = IDENTIFY_MODE.upper()
@@ -323,6 +325,18 @@ class ShazamWorker:
                     with self._lock:
                         if self._state['title'] is None:
                             self._state['status'] = 'Listening...'
+                    continue
+
+                candidate = result['title']
+                if candidate == self._pending_title:
+                    self._pending_count += 1
+                else:
+                    self._pending_title = candidate
+                    self._pending_count = 1
+
+                already_showing = self._state.get('title') == candidate
+                if self._pending_count < 2 and not already_showing:
+                    print(f"{tag}: candidate '{candidate}' by {result['artist']} (need one more match)", flush=True)
                     continue
 
                 art_bytes = None

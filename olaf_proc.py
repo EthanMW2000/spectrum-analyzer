@@ -23,6 +23,7 @@ import hashlib
 
 COLLECTION_PATH = os.path.expanduser("~/.olaf/collection.json")
 ART_CACHE_DIR = os.path.expanduser("~/.olaf/art_cache")
+MIN_MATCH_COUNT = 10
 
 
 def load_collection():
@@ -63,33 +64,31 @@ def query_olaf(wav_path):
 
 def parse_olaf_output(output):
     """Extract the matched filename from Olaf query output.
-    Olaf prints lines like:
-        match <filename> <offset> <score> <hash_count>
-    We want the filename from the best match.
+    Olaf outputs CSV lines like:
+        1, 1, query.wav, 0, 23, 0.28, 6.78, /path/to/ref.wav, refID, ref_start, ref_stop
+    Field 7 is the reference path, field 4 is the match count.
     """
     best_filename = None
     best_count = 0
 
     for line in output.splitlines():
-        parts = line.strip().split()
-        if not parts:
+        fields = [f.strip() for f in line.split(",")]
+        if len(fields) < 8:
             continue
-
-        if parts[0] == "match" and len(parts) >= 5:
-            filename = parts[1]
-            try:
-                hash_count = int(parts[4])
-            except (ValueError, IndexError):
-                hash_count = 0
-            if hash_count > best_count:
-                best_count = hash_count
-                best_filename = filename
+        try:
+            match_count = int(fields[4])
+        except (ValueError, IndexError):
+            continue
+        ref_path = fields[7]
+        if match_count > best_count:
+            best_count = match_count
+            best_filename = ref_path
 
     if not best_filename:
-        return None
+        return None, 0
 
     track_id = os.path.splitext(os.path.basename(best_filename))[0]
-    return track_id
+    return track_id, best_count
 
 
 def fetch_art(cover_url):
@@ -130,8 +129,14 @@ def identify(wav_path):
     if not output:
         return None
 
-    track_id = parse_olaf_output(output)
+    track_id, match_count = parse_olaf_output(output)
     if not track_id:
+        return None
+
+    print(f"OLAF: match_count={match_count} for {track_id}", file=sys.stderr, flush=True)
+
+    if match_count < MIN_MATCH_COUNT:
+        print(f"OLAF: below threshold ({match_count} < {MIN_MATCH_COUNT}), ignoring", file=sys.stderr, flush=True)
         return None
 
     collection = load_collection()
