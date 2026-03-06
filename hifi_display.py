@@ -21,7 +21,7 @@ import io
 
 TEST_MODE          = False
 FULLSCREEN         = True
-AUDIO_DEVICE_INDEX = 0      # ClearClick USB Audio
+AUDIO_DEVICE_INDEX = None   # auto-detect ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
 IDENTIFY_INTERVAL  = 2      # seconds between identification attempts
@@ -93,7 +93,7 @@ TEXT_X    = ART_X + ART_SIZE + int(DISPLAY_W * 0.03)
 
 RATE       = 48000
 CHUNK      = 1024
-CHANNELS   = 1
+CHANNELS   = 2
 FORMAT_PA  = 8   # pyaudio.paInt16
 
 class AudioEngine:
@@ -161,7 +161,11 @@ class AudioEngine:
         while self._running:
             try:
                 in_data = self.stream.read(CHUNK, exception_on_overflow=False)
-                samples = np.frombuffer(in_data, dtype=np.int16).copy()
+                raw = np.frombuffer(in_data, dtype=np.int16)
+                if CHANNELS == 2:
+                    samples = ((raw[0::2].astype(np.int32) + raw[1::2].astype(np.int32)) // 2).astype(np.int16)
+                else:
+                    samples = raw.copy()
                 error_count = 0
 
                 with self._lock:
@@ -243,7 +247,7 @@ class AudioEngine:
             buf = np.concatenate((self._audio_buf[pos:], self._audio_buf[:pos]))
         bio = io.BytesIO()
         with wave.open(bio, 'wb') as wf:
-            wf.setnchannels(CHANNELS)
+            wf.setnchannels(1)
             wf.setsampwidth(2)
             wf.setframerate(RATE)
             wf.writeframes(buf.tobytes())
