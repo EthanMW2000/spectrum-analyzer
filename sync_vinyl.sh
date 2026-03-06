@@ -10,7 +10,7 @@ touch "$MANIFEST"
 mkdir -p ~/vinyl-audio/converted
 
 # List remote tracks, download + convert + ingest only new ones
-aws s3 ls s3://ethanwells-photography/vinyl/audio/ | awk '{print $4}' | while read -r filename; do
+aws s3 ls s3://ethanwells-photography/vinyl/audio/ | awk '{print $NF}' | while read -r filename; do
   [ -z "$filename" ] && continue
   base="${filename%.*}"
 
