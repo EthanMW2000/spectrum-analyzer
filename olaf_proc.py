@@ -23,7 +23,7 @@ import hashlib
 
 COLLECTION_PATH = os.path.expanduser("~/.olaf/collection.json")
 ART_CACHE_DIR = os.path.expanduser("~/.olaf/art_cache")
-MIN_MATCH_COUNT = 8
+MIN_MATCH_COUNT = 6
 
 
 def load_collection():

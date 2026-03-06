@@ -24,7 +24,7 @@ FULLSCREEN         = True
 AUDIO_DEVICE_INDEX = None   # auto-detect ClearClick USB Audio
 RMS_THRESHOLD      = 0.02
 IDLE_TIMEOUT       = 30     # seconds of silence before idle screen
-IDENTIFY_INTERVAL  = 2      # seconds between identification attempts
+IDENTIFY_INTERVAL  = 1      # seconds between identification attempts
 IDENTIFY_MODE      = "olaf"  # "olaf" | "shazam" | "shazam+collection"
 IDENTIFY_SCRIPTS   = {
     "olaf": "olaf_proc.py",
