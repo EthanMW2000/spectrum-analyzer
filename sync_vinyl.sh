@@ -10,7 +10,8 @@ touch "$MANIFEST"
 mkdir -p ~/vinyl-audio/converted
 
 # List remote tracks, download + convert + ingest only new ones
-aws s3api list-objects-v2 --bucket ethanwells-photography --prefix vinyl/audio/ --query 'Contents[].Key' --output text | tr '\t' '\n' | sed 's|vinyl/audio/||' | while read -r filename; do
+mapfile -t FILES < <(aws s3api list-objects-v2 --bucket ethanwells-photography --prefix vinyl/audio/ --query 'Contents[].Key' --output text | tr '\t' '\n' | sed 's|vinyl/audio/||')
+for filename in "${FILES[@]}"; do
   [ -z "$filename" ] && continue
   base="${filename%.*}"
 
