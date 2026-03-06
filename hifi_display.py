@@ -239,7 +239,8 @@ class AudioEngine:
 
     def get_audio_buffer_wav(self):
         with self._lock:
-            buf = self._audio_buf.copy()
+            pos = self._buf_pos
+            buf = np.concatenate((self._audio_buf[pos:], self._audio_buf[:pos]))
         bio = io.BytesIO()
         with wave.open(bio, 'wb') as wf:
             wf.setnchannels(CHANNELS)
