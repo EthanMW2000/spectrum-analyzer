@@ -33,6 +33,7 @@ IDENTIFY_SCRIPTS   = {
 }
 WINDOW_W   = 800    # only used when FULLSCREEN = False
 WINDOW_H   = 480    # only used when FULLSCREEN = False
+COLLECTION_PATH    = os.path.expanduser("~/.olaf/collection.json")
 
 # ─── INIT DISPLAY ─────────────────────────────────────────────────────────────
 
@@ -512,6 +513,51 @@ def make_scope_grid():
             pygame.gfxdraw.filled_circle(surf, x, y, 2, (0, 100, 45, 65))
     return surf
 
+# ─── RANDOM PICKER ────────────────────────────────────────────────────────────
+
+class RandomPicker:
+    def __init__(self):
+        self.records = []
+        self.pick = None
+        self.pick_art = None
+        self._load_collection()
+
+    def _load_collection(self):
+        try:
+            import json
+            with open(COLLECTION_PATH) as f:
+                data = json.load(f)
+            self.records = list(data.get("records", {}).values())
+        except Exception:
+            self.records = []
+
+    def spin(self):
+        if not self.records:
+            self._load_collection()
+        if not self.records:
+            return
+        self.pick = random.choice(self.records)
+        self.pick_art = None
+        threading.Thread(target=self._fetch_art, daemon=True).start()
+
+    def _fetch_art(self):
+        url = self.pick.get("coverUrl") if self.pick else None
+        if not url:
+            return
+        try:
+            import requests
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                img_io = io.BytesIO(resp.content)
+                img = pygame.image.load(img_io)
+                self.pick_art = pygame.transform.smoothscale(img, (ART_SIZE, ART_SIZE))
+        except Exception:
+            pass
+
+    def clear(self):
+        self.pick = None
+        self.pick_art = None
+
 # ─── RENDERER ─────────────────────────────────────────────────────────────────
 
 class Renderer:
@@ -530,6 +576,10 @@ class Renderer:
 
         self.font_clock_big  = load_font(int(DISPLAY_H * 0.28))
         self.font_clock_date = load_font(int(DISPLAY_H * 0.06))
+        self.font_btn        = load_font(int(DISPLAY_H * 0.05))
+
+        self.picker = RandomPicker()
+        self.btn_rect = None
 
         self.bar_w       = (DISPLAY_W - (NUM_BARS - 1) * BAR_GAP) // NUM_BARS
         self.bar_x_start = (DISPLAY_W - (self.bar_w * NUM_BARS + BAR_GAP * (NUM_BARS - 1))) // 2
@@ -578,9 +628,43 @@ class Renderer:
             time_y + time_surf.get_height() - sec_surf.get_height() - int(DISPLAY_H * 0.01)))
 
         date_surf = self.font_clock_date.render(time.strftime("%A,  %B %-d  %Y"), True, (60, 110, 70))
-        self.screen.blit(date_surf, (
-            cx - date_surf.get_width() // 2,
-            time_y + time_surf.get_height() + int(DISPLAY_H * 0.02)))
+        date_y = time_y + time_surf.get_height() + int(DISPLAY_H * 0.02)
+        self.screen.blit(date_surf, (cx - date_surf.get_width() // 2, date_y))
+
+        pick = self.picker.pick
+        if pick:
+            art_size = int(DISPLAY_H * 0.28)
+            art_x = int(DISPLAY_W * 0.06)
+            art_y = DISPLAY_H - art_size - int(DISPLAY_H * 0.06)
+
+            pygame.draw.rect(self.screen, (10, 14, 11), (art_x, art_y, art_size, art_size))
+            if self.picker.pick_art:
+                scaled = pygame.transform.smoothscale(self.picker.pick_art, (art_size, art_size))
+                self.screen.blit(scaled, (art_x, art_y))
+            for inset in range(2):
+                a = 25 - inset * 10
+                pygame.draw.rect(self.screen, (0, 80, 40, a),
+                                 (art_x + inset, art_y + inset,
+                                  art_size - inset * 2, art_size - inset * 2), 1)
+
+            text_x = art_x + art_size + int(DISPLAY_W * 0.03)
+            text_y = art_y + int(art_size * 0.15)
+            title_surf = self.font_title.render(pick["title"], True, COLOR_TEXT_PRIMARY)
+            self.screen.blit(title_surf, (text_x, text_y))
+            artist_surf = self.font_artist.render(pick["artist"], True, COLOR_TEXT_MID)
+            self.screen.blit(artist_surf, (text_x, text_y + title_surf.get_height() + 4))
+
+        btn_text = "SPIN" if not pick else "SPIN AGAIN"
+        btn_surf = self.font_btn.render(btn_text, True, (0, 200, 80))
+        btn_w = btn_surf.get_width() + int(DISPLAY_W * 0.06)
+        btn_h = btn_surf.get_height() + int(DISPLAY_H * 0.03)
+        btn_x = cx - btn_w // 2
+        btn_y = DISPLAY_H - btn_h - int(DISPLAY_H * 0.04) if not pick else int(DISPLAY_H * 0.04)
+        self.btn_rect = pygame.Rect(btn_x, btn_y, btn_w, btn_h)
+        pygame.draw.rect(self.screen, (0, 60, 30), self.btn_rect, border_radius=6)
+        pygame.draw.rect(self.screen, (0, 140, 60), self.btn_rect, 1, border_radius=6)
+        self.screen.blit(btn_surf, (btn_x + (btn_w - btn_surf.get_width()) // 2,
+                                     btn_y + (btn_h - btn_surf.get_height()) // 2))
 
     # ── HiFi panel ─────────────────────────────────────────────────────────────
 
@@ -751,10 +835,19 @@ def main():
                     if event.key == pygame.K_ESCAPE:
                         running = False
                 if event.type in (pygame.MOUSEBUTTONDOWN, pygame.FINGERDOWN):
-                    idle          = not idle
-                    last_tap_time = time.time()
-                    if not idle:
-                        last_sound_time = time.time()
+                    if event.type == pygame.FINGERDOWN:
+                        tap_pos = (int(event.x * DISPLAY_W), int(event.y * DISPLAY_H))
+                    else:
+                        tap_pos = event.pos
+                    if idle and render.btn_rect and render.btn_rect.collidepoint(tap_pos):
+                        render.picker.spin()
+                    else:
+                        if idle:
+                            render.picker.clear()
+                        idle          = not idle
+                        last_tap_time = time.time()
+                        if not idle:
+                            last_sound_time = time.time()
 
             audio.update()
 
@@ -784,6 +877,7 @@ def main():
                     if audio.get_rms() > RMS_THRESHOLD:
                         last_sound_time = time.time()
                         idle = False
+                        render.picker.clear()
                     elif time.time() - last_sound_time > IDLE_TIMEOUT:
                         if not idle:
                             identifier.reset()
