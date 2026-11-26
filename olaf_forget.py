@@ -25,10 +25,15 @@ ID_MASK = 0xFFFFFFFF
 
 def main(identifiers):
     wanted = {os.fsencode(i) for i in identifiers}
+    if not os.path.exists(os.path.join(DB_DIR, "data.mdb")):
+        return
     env = lmdb.open(DB_DIR, max_dbs=2, map_size=1 << 40)
-    fps = env.open_db(b"olaf_fingerprints", integerkey=True, dupsort=True,
-                      dupfixed=True, integerdup=True, create=False)
-    meta = env.open_db(b"olaf_resource_map", integerkey=True, create=False)
+    try:
+        fps = env.open_db(b"olaf_fingerprints", integerkey=True, dupsort=True,
+                          dupfixed=True, integerdup=True, create=False)
+        meta = env.open_db(b"olaf_resource_map", integerkey=True, create=False)
+    except lmdb.NotFoundError:
+        return
 
     with env.begin(write=True) as txn:
         ids = {}
