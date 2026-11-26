@@ -31,6 +31,12 @@ log() { echo "$(date '+%F %T') $*"; }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$CONVERTED"
+# No Olaf DB (fresh install or lost DB): re-ingest everything so the backup
+# never overwrites a full archive with a partial index.
+if [ ! -s "$OLAF_DIR/db/data.mdb" ] && { [ -s "$MANIFEST" ] || [ -s "$LEGACY_MANIFEST" ]; }; then
+  log "Olaf DB missing; re-fingerprinting every track"
+  rm -f "$MANIFEST" "$LEGACY_MANIFEST"
+fi
 touch "$MANIFEST"
 
 # trackId <TAB> key <TAB> etag <TAB> lastModified, newest object per trackId
