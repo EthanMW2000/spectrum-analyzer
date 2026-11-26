@@ -6,6 +6,7 @@
 # when its object's key or ETag changes (if several objects exist for one
 # trackId, the newest wins). Audio is deleted once fingerprinted.
 set -euo pipefail
+export PATH=/usr/local/bin:$PATH  # cron PATH lacks olaf
 
 OLAF_DIR=~/.olaf
 mkdir -p "$OLAF_DIR"
