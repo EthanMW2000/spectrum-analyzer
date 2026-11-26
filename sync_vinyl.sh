@@ -42,7 +42,17 @@ if [ ! -s "$OLAF_DIR/db/data.mdb" ]; then
     : > "$MANIFEST"
   else
     "${S3CP[@]}" "s3://$BUCKET/$BACKUP_KEY" "$TMP/restore.tar.gz"
-    tar -xzf "$TMP/restore.tar.gz" -C "$OLAF_DIR"
+    # Extract beside the DB and move it in last, so an interrupted restore
+    # never leaves a partial data.mdb in place.
+    rm -rf "$OLAF_DIR/restore"
+    mkdir "$OLAF_DIR/restore"
+    tar -xzf "$TMP/restore.tar.gz" -C "$OLAF_DIR/restore"
+    for f in stored.tsv stored.txt collection.json; do
+      if [ -e "$OLAF_DIR/restore/$f" ]; then mv "$OLAF_DIR/restore/$f" "$OLAF_DIR/$f"; fi
+    done
+    rm -rf "$OLAF_DIR/db"
+    mv "$OLAF_DIR/restore/db" "$OLAF_DIR/db"
+    rm -rf "$OLAF_DIR/restore"
     log "Olaf DB missing; restored it from s3://$BUCKET/$BACKUP_KEY"
   fi
 fi
