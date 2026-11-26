@@ -499,6 +499,9 @@ fn file_loop(path: &PathBuf, dsp: &mut Dsp) {
             ((a + (b - a) * t) * 32767.0) as i16
         })
         .collect();
+    if pcm.is_empty() {
+        fail("too short to play".into());
+    }
     eprintln!(
         "audio: playing {} ({:.0} s, looped)",
         path.display(),
