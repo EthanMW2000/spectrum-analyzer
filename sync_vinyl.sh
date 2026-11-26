@@ -31,13 +31,20 @@ log() { echo "$(date '+%F %T') $*"; }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$CONVERTED"
-# No Olaf DB (fresh install or lost DB): re-ingest everything so the backup
-# never overwrites a full archive with a partial index.
-if [ ! -s "$OLAF_DIR/db/data.mdb" ] && { [ -s "$MANIFEST" ] || [ -s "$LEGACY_MANIFEST" ]; }; then
-  log "Olaf DB missing; re-fingerprinting every track"
-  rm -f "$MANIFEST" "$LEGACY_MANIFEST"
+BACKUP_KEY=vinyl/fingerprints/olaf_db.tar.gz
+# No local Olaf DB: restore the S3 backup (a rebuild that hits one bad track
+# would back up a partial index over it). Rebuild only when no backup exists.
+if [ ! -s "$OLAF_DIR/db/data.mdb" ]; then
+  if [ "$(aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$BACKUP_KEY" --query KeyCount --output text)" = 0 ]; then
+    log "No Olaf DB or S3 backup; fingerprinting every track"
+    rm -f "$MANIFEST" "$LEGACY_MANIFEST"
+    : > "$MANIFEST"
+  else
+    "${S3CP[@]}" "s3://$BUCKET/$BACKUP_KEY" "$TMP/restore.tar.gz"
+    tar -xzf "$TMP/restore.tar.gz" -C "$OLAF_DIR"
+    log "Olaf DB missing; restored it from s3://$BUCKET/$BACKUP_KEY"
+  fi
 fi
-touch "$MANIFEST"
 
 # trackId <TAB> key <TAB> etag <TAB> lastModified, newest object per trackId
 aws s3api list-objects-v2 --bucket "$BUCKET" --prefix "$PREFIX" \
@@ -53,10 +60,13 @@ awk -F'\t' -v OFS='\t' -v p="$PREFIX" '
 
 # One-time migration from stored.txt (trackIds only): adopt the current S3
 # object unless it is newer than the local copy that was fingerprinted.
-if [ ! -s "$MANIFEST" ] && [ -s "$LEGACY_MANIFEST" ]; then
+if [ ! -e "$MANIFEST" ] && [ -s "$LEGACY_MANIFEST" ]; then
   while IFS=$'\t' read -r id key etag modified; do
     grep -qxF "$id" "$LEGACY_MANIFEST" || continue
-    local_copy="$WORK/${key#"$PREFIX"}"
+    local_copy=
+    for f in "$WORK/$id".*; do
+      if [ -f "$f" ] && [ "$f" -nt "${local_copy:-/nonexistent}" ]; then local_copy=$f; fi
+    done
     if [ -f "$local_copy" ] && [ "$(date -d "$modified" +%s)" -gt "$(stat -c %Y "$local_copy")" ]; then
       continue
     fi
@@ -64,6 +74,7 @@ if [ ! -s "$MANIFEST" ] && [ -s "$LEGACY_MANIFEST" ]; then
   done < "$TMP/remote.tsv"
   log "Migrated $(wc -l < "$MANIFEST") tracks from stored.txt"
 fi
+touch "$MANIFEST"
 
 awk -F'\t' -v OFS='\t' '
   FILENAME == ARGV[1] { stored[$1] = $2 "\t" $3; next }
@@ -126,7 +137,7 @@ fi
 # Retried every run until an upload succeeds.
 if [ -e "$PENDING" ]; then
   if tar -czf "$TMP/olaf_db.tar.gz" -C "$OLAF_DIR" ./db ./stored.txt ./stored.tsv ./collection.json \
-     && "${S3CP[@]}" "$TMP/olaf_db.tar.gz" "s3://$BUCKET/vinyl/fingerprints/olaf_db.tar.gz"; then
+     && "${S3CP[@]}" "$TMP/olaf_db.tar.gz" "s3://$BUCKET/$BACKUP_KEY"; then
     rm -f "$PENDING"
     log "Backed up Olaf DB"
   else
