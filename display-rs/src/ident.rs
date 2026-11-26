@@ -475,7 +475,11 @@ impl Worker {
         self.collection.refresh();
         let now = self.fed.load(Ordering::Relaxed) as f32 / 16000.0;
         let mut best: HashMap<&str, u32> = HashMap::new();
-        for m in block.iter().filter(|m| m.q_stop >= now - 6.0) {
+        // Fingerprints whose track is gone from collection.json can't be shown; skip them.
+        for m in block
+            .iter()
+            .filter(|m| m.q_stop >= now - 6.0 && self.collection.song(&m.track_id).is_some())
+        {
             let e = best.entry(&m.track_id).or_default();
             *e = (*e).max(m.count);
         }
