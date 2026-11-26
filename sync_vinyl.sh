@@ -63,35 +63,47 @@ awk -F'\t' -v OFS='\t' '
   FILENAME == ARGV[1] { stored[$1] = $2 "\t" $3; next }
   stored[$1] != $2 "\t" $3 { print $1, $2 }' "$MANIFEST" "$TMP/remote.tsv" > "$TMP/todo.tsv"
 
-changed=0
-if [ -s "$TMP/todo.tsv" ]; then
-  log "$(wc -l < "$TMP/todo.tsv") new or changed track(s)"
+PENDING=$OLAF_DIR/backup.pending
+BATCH=25
 
-  # Drop old fingerprints first: `olaf store` skips identifiers already indexed.
-  mapfile -t wavs < <(cut -f1 "$TMP/todo.tsv" | sed "s|.*|$CONVERTED/&.wav|")
-  python3 "$SCRIPT_DIR/olaf_forget.py" "${wavs[@]}"
-  awk -F'\t' 'FILENAME == ARGV[1] { todo[$1]; next } !($1 in todo)' "$TMP/todo.tsv" "$MANIFEST" > "$TMP/manifest"
+# Old fingerprints are dropped only for tracks whose new audio converted, and
+# right before storing: `olaf store` skips identifiers already indexed.
+store_batch() {
+  [ -s "$TMP/batch.tsv" ] || return 0
+  touch "$PENDING"
+  mapfile -t wavs < <(cut -f1 "$TMP/batch.tsv" | sed "s|.*|$CONVERTED/&.wav|")
+  python3 "$SCRIPT_DIR/olaf_forget.py" "${wavs[@]}" || exit 1
+  awk -F'\t' 'FILENAME == ARGV[1] { batch[$1]; next } !($1 in batch)' "$TMP/batch.tsv" "$MANIFEST" > "$TMP/manifest"
   cat "$TMP/manifest" > "$MANIFEST"
-  changed=1
-
-  ingest() {
-    local id=$1 key=$2 src="$WORK/${2#"$PREFIX"}" wav="$CONVERTED/$1.wav"
-    "${S3CP[@]}" "s3://$BUCKET/$key" "$src" || return 1
-    ffmpeg -nostdin -loglevel error -i "$src" -ar 16000 -ac 1 -y "$wav" || return 1
-    olaf store "$wav" > /dev/null || return 1
-  }
-
-  while IFS=$'\t' read -r id key; do
-    etag=$(awk -F'\t' -v id="$id" '$1 == id { print $3 }' "$TMP/remote.tsv")
-    if ingest "$id" "$key"; then
+  while IFS=$'\t' read -r -u 3 id key etag; do
+    if olaf store "$CONVERTED/$id.wav" > /dev/null; then
       printf '%s\t%s\t%s\n' "$id" "$key" "$etag" >> "$MANIFEST"
       log "Stored $key"
     else
-      log "FAILED $key (will retry next run)"
+      log "FAILED to store $key (will retry next run)"
     fi
-    rm -f "$WORK/${key#"$PREFIX"}" "$CONVERTED/$id.wav"
-  done < "$TMP/todo.tsv"
+    rm -f "$CONVERTED/$id.wav"
+  done 3< "$TMP/batch.tsv"
+  : > "$TMP/batch.tsv"
+}
 
+if [ -s "$TMP/todo.tsv" ]; then
+  log "$(wc -l < "$TMP/todo.tsv") new or changed track(s)"
+  : > "$TMP/batch.tsv"
+  while IFS=$'\t' read -r -u 3 id key; do
+    etag=$(awk -F'\t' -v id="$id" '$1 == id { print $3 }' "$TMP/remote.tsv")
+    src="$WORK/${key#"$PREFIX"}"
+    if "${S3CP[@]}" "s3://$BUCKET/$key" "$src" \
+       && ffmpeg -nostdin -loglevel error -i "$src" -ar 16000 -ac 1 -y "$CONVERTED/$id.wav"; then
+      printf '%s\t%s\t%s\n' "$id" "$key" "$etag" >> "$TMP/batch.tsv"
+    else
+      log "FAILED to fetch or convert $key (old fingerprints kept; will retry next run)"
+      rm -f "$CONVERTED/$id.wav"
+    fi
+    rm -f "$src"
+    [ "$(wc -l < "$TMP/batch.tsv")" -lt "$BATCH" ] || store_batch
+  done 3< "$TMP/todo.tsv"
+  store_batch
   cut -f1 "$MANIFEST" > "$LEGACY_MANIFEST"
 fi
 
@@ -105,8 +117,13 @@ else
   log "Collection export failed; keeping previous collection.json"
 fi
 
-if [ "$changed" = 1 ]; then
-  tar -czf "$TMP/olaf_db.tar.gz" -C "$OLAF_DIR" ./db ./stored.txt ./stored.tsv ./collection.json
-  "${S3CP[@]}" "$TMP/olaf_db.tar.gz" "s3://$BUCKET/vinyl/fingerprints/olaf_db.tar.gz"
-  log "Backed up Olaf DB"
+# Retried every run until an upload succeeds.
+if [ -e "$PENDING" ]; then
+  if tar -czf "$TMP/olaf_db.tar.gz" -C "$OLAF_DIR" ./db ./stored.txt ./stored.tsv ./collection.json \
+     && "${S3CP[@]}" "$TMP/olaf_db.tar.gz" "s3://$BUCKET/vinyl/fingerprints/olaf_db.tar.gz"; then
+    rm -f "$PENDING"
+    log "Backed up Olaf DB"
+  else
+    log "Backup failed (will retry next run)"
+  fi
 fi
