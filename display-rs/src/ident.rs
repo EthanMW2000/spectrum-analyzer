@@ -611,27 +611,65 @@ struct ShazamOut {
     artist: Option<String>,
 }
 
+const SHAZAM_DEADLINE: Duration = Duration::from_secs(30);
+
+struct ShazamHelper {
+    child: Child,
+    stdin: ChildStdin,
+    lines: Receiver<String>,
+}
+
+impl ShazamHelper {
+    fn spawn(py: &Path, script: &Path) -> std::io::Result<Self> {
+        let mut child = Command::new(py)
+            .arg(script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()?;
+        let stdin = child.stdin.take().unwrap();
+        let out = BufReader::new(child.stdout.take().unwrap());
+        let (tx, lines) = mpsc::channel();
+        std::thread::spawn(move || {
+            for line in out.lines().map_while(Result::ok) {
+                if tx.send(line).is_err() {
+                    break;
+                }
+            }
+        });
+        eprintln!("shazam: helper started (pid {})", child.id());
+        Ok(ShazamHelper {
+            child,
+            stdin,
+            lines,
+        })
+    }
+
+    /// One request; None if the helper died or didn't answer within SHAZAM_DEADLINE.
+    fn ask(&mut self, wav: &Path) -> Option<String> {
+        writeln!(self.stdin, "{}", wav.display()).ok()?;
+        self.stdin.flush().ok()?;
+        self.lines.recv_timeout(SHAZAM_DEADLINE).ok()
+    }
+}
+
+impl Drop for ShazamHelper {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 fn shazam_loop(
     py: PathBuf,
     script: PathBuf,
     rx: Receiver<ShazamReq>,
     tx: Sender<Option<(String, String)>>,
 ) {
-    let mut proc: Option<(Child, ChildStdin, BufReader<std::process::ChildStdout>)> = None;
+    let mut helper: Option<ShazamHelper> = None;
     for req in rx {
-        if proc.is_none() {
-            match Command::new(&py)
-                .arg(&script)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .spawn()
-            {
-                Ok(mut c) => {
-                    let i = c.stdin.take().unwrap();
-                    let o = BufReader::new(c.stdout.take().unwrap());
-                    eprintln!("shazam: helper started (pid {})", c.id());
-                    proc = Some((c, i, o));
-                }
+        if helper.is_none() {
+            match ShazamHelper::spawn(&py, &script) {
+                Ok(h) => helper = Some(h),
                 Err(e) => {
                     eprintln!("shazam: cannot start {}: {e}", py.display());
                     let _ = tx.send(None);
@@ -639,19 +677,12 @@ fn shazam_loop(
                 }
             }
         }
-        let (_, stdin, stdout) = proc.as_mut().unwrap();
-        let mut line = String::new();
-        let ok = writeln!(stdin, "{}", req.wav.display()).is_ok()
-            && stdin.flush().is_ok()
-            && stdout.read_line(&mut line).map(|n| n > 0).unwrap_or(false);
-        if !ok {
-            if let Some((mut c, _, _)) = proc.take() {
-                let _ = c.kill();
-                let _ = c.wait();
-            }
+        let Some(line) = helper.as_mut().unwrap().ask(&req.wav) else {
+            eprintln!("shazam: helper died or timed out, restarting it next time");
+            helper = None;
             let _ = tx.send(None);
             continue;
-        }
+        };
         let res = serde_json::from_str::<Option<ShazamOut>>(line.trim())
             .ok()
             .flatten()
