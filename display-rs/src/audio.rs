@@ -37,17 +37,20 @@ fn dbfs(x: f32) -> f32 {
 struct LevelMeter {
     sum_sq: f64,
     samples: usize,
-    peak: f32,
+    raw_peak: [f32; 2],
     max_chunk_rms: f32,
     chunks: usize,
     chunks_above: usize,
 }
 
 impl LevelMeter {
-    fn add(&mut self, floats: &[f32], chunk_rms: f32) {
+    /// `raw_peak` is the per-channel peak before downmix and DC removal, so clipping shows.
+    fn add(&mut self, floats: &[f32], chunk_rms: f32, raw_peak: [f32; 2]) {
         for &f in floats {
             self.sum_sq += (f * f) as f64;
-            self.peak = self.peak.max(f.abs());
+        }
+        for (mine, new) in self.raw_peak.iter_mut().zip(raw_peak) {
+            *mine = mine.max(new);
         }
         self.samples += floats.len();
         self.max_chunk_rms = self.max_chunk_rms.max(chunk_rms);
@@ -58,9 +61,10 @@ impl LevelMeter {
         if self.samples >= LEVEL_LOG_SECS * RATE as usize {
             let rms = (self.sum_sq / self.samples as f64).sqrt() as f32;
             eprintln!(
-                "level: rms {:.1} dBFS, peak {:.1} dBFS, loudest chunk {:.1} dBFS, {}/{} chunks above threshold {} ({:.1} dBFS)",
+                "level: rms {:.1} dBFS, peak L {:.1} R {:.1} dBFS, loudest chunk {:.1} dBFS, {}/{} chunks above threshold {} ({:.1} dBFS)",
                 dbfs(rms),
-                dbfs(self.peak),
+                dbfs(self.raw_peak[0]),
+                dbfs(self.raw_peak[1]),
                 dbfs(self.max_chunk_rms),
                 self.chunks_above,
                 self.chunks,
@@ -281,7 +285,7 @@ impl Dsp {
         }
     }
 
-    fn process(&mut self, samples: &[i16]) {
+    fn process(&mut self, samples: &[i16], raw_peak: [f32; 2]) {
         if let Some(tx) = &self.olaf_tx {
             let mut out = Vec::with_capacity(samples.len() / 3 + 1);
             for &s in samples {
@@ -294,7 +298,7 @@ impl Dsp {
         let mean = samples.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / n as f32;
         let floats: Vec<f32> = samples.iter().map(|&s| s as f32 / 32768.0 - mean).collect();
         let rms = (floats.iter().map(|f| f * f).sum::<f32>() / n as f32).sqrt();
-        self.meter.add(&floats, rms);
+        self.meter.add(&floats, rms, raw_peak);
 
         self.fft_buf.copy_within(n.., 0);
         let len = self.fft_buf.len();
@@ -428,12 +432,14 @@ fn alsa_loop(dev: Option<String>, dsp: &mut Dsp) {
                 Ok(frames) if frames > 0 => {
                     last_data = Instant::now();
                     mono.clear();
+                    let mut peak = [0i32; 2];
                     for f in 0..frames {
                         let l = buf[2 * f] as i32;
                         let r = buf[2 * f + 1] as i32;
+                        peak = [peak[0].max(l.abs()), peak[1].max(r.abs())];
                         mono.push(((l + r) / 2) as i16);
                     }
-                    dsp.process(&mono);
+                    dsp.process(&mono, peak.map(|p| p as f32 / 32768.0));
                 }
                 Ok(_) => {}
                 Err(e) if e.errno() == libc_eagain() => {}
@@ -503,7 +509,9 @@ fn file_loop(path: &PathBuf, dsp: &mut Dsp) {
     loop {
         let off = sent % pcm.len();
         let end = (off + CHUNK).min(pcm.len());
-        dsp.process(&pcm[off..end]);
+        let chunk = &pcm[off..end];
+        let peak = chunk.iter().map(|&s| (s as i32).abs()).max().unwrap_or(0) as f32 / 32768.0;
+        dsp.process(chunk, [peak; 2]);
         sent += end - off;
         let due = Duration::from_secs_f64(sent as f64 / RATE as f64);
         if let Some(d) = due.checked_sub(start.elapsed()) {
