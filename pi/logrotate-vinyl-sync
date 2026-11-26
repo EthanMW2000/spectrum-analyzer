@@ -1,0 +1,10 @@
+# /etc/logrotate.d/vinyl-sync
+/home/ethanmw2000/.olaf/sync.log {
+    su ethanmw2000 ethanmw2000
+    size 1M
+    rotate 3
+    compress
+    missingok
+    notifempty
+    copytruncate
+}

@@ -48,3 +48,24 @@ To run on boot as a systemd service, create a unit file pointing to `hifi_displa
 ## License
 
 MIT
+
+## Pi maintenance
+
+Song ID uses [Olaf](https://github.com/JorenSix/Olaf) fingerprints of the collection audio in
+`s3://ethanwells-photography/vinyl/audio/{trackId}.{ext}`. `sync_vinyl.sh` runs hourly from cron:
+
+```
+0 * * * * /home/ethanmw2000/spectrum-analyzer/sync_vinyl.sh >> /home/ethanmw2000/.olaf/sync.log 2>&1
+```
+
+- Fingerprints new tracks, and re-fingerprints a track when its S3 object's key or ETag changes
+  (old fingerprints are removed first with `olaf_forget.py`). State is in `~/.olaf/stored.tsv`.
+- Deletes the downloaded and converted audio once it is fingerprinted.
+- Refreshes `~/.olaf/collection.json` from the portfolio's `/api/vinyl/export`.
+- Uploads `vinyl/fingerprints/olaf_db.tar.gz` only when fingerprints changed.
+
+System config for the Pi lives in `pi/` (install paths are in each file's first line):
+journal capped at 200 MB, `sync.log` rotated at 1 MB, systemd hardware watchdog (reboots on a hang),
+and PipeWire kept off the ClearClick so the display owns it. `/boot/firmware/config.txt` also has
+`dtparam=sd_cqe=0`: SD command queueing was hitting `mmc0: running CQE recovery` errors.
+`python3-lmdb` (apt) is required by `olaf_forget.py`.
