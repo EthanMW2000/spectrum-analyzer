@@ -45,6 +45,10 @@ python3 hifi_display.py
 
 To run on boot as a systemd service, create a unit file pointing to `hifi_display.py` and enable it.
 
+## Rust version
+
+`display-rs/` is a GPU-rendered Rust rewrite of `hifi_display.py` with a long-lived Olaf worker and a collection-only Shazam fallback. See [display-rs/README.md](display-rs/README.md).
+
 ## License
 
 MIT
