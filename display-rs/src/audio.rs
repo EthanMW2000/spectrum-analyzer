@@ -395,23 +395,32 @@ const fn libc_eagain() -> i32 {
 
 /// Plays a WAV file as if it came from the turntable (looped, real time).
 fn file_loop(path: &PathBuf, dsp: &mut Dsp) {
-    let mut reader = hound::WavReader::open(path).expect("open wav");
+    // --audio-file is a test mode: a bad file should stop the program, not leave it silent.
+    let fail = |msg: String| -> ! {
+        eprintln!("audio: {}: {msg}", path.display());
+        std::process::exit(1)
+    };
+    let mut reader = hound::WavReader::open(path).unwrap_or_else(|e| fail(e.to_string()));
     let spec = reader.spec();
     let raw: Vec<f32> = match spec.sample_format {
         hound::SampleFormat::Int => {
             let scale = (1i64 << (spec.bits_per_sample - 1)) as f32;
             reader
                 .samples::<i32>()
-                .map(|s| s.unwrap() as f32 / scale)
-                .collect()
+                .map(|s| s.map(|v| v as f32 / scale))
+                .collect::<Result<_, _>>()
         }
-        hound::SampleFormat::Float => reader.samples::<f32>().map(|s| s.unwrap()).collect(),
-    };
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<_, _>>(),
+    }
+    .unwrap_or_else(|e| fail(e.to_string()));
     let ch = spec.channels as usize;
     let mono: Vec<f32> = raw
         .chunks(ch)
         .map(|c| c.iter().sum::<f32>() / ch as f32)
         .collect();
+    if mono.is_empty() {
+        fail("no audio samples".into());
+    }
     let ratio = spec.sample_rate as f64 / RATE as f64;
     let out_len = (mono.len() as f64 / ratio) as usize;
     let pcm: Vec<i16> = (0..out_len)
