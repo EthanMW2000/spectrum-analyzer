@@ -16,14 +16,14 @@ pub const NUM_BARS: usize = 32;
 const DEFAULT_RMS_THRESHOLD: f32 = 0.02;
 const LEVEL_LOG_SECS: usize = 10;
 
-/// Chunk RMS above which audio counts as music (env `HIFI_RMS_THRESHOLD`, default 0.02).
+/// Chunk RMS above which audio counts as music (env `HIFI_RMS_THRESHOLD`, 0 < t < 1, default 0.02).
 pub fn rms_threshold() -> f32 {
     static T: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
     *T.get_or_init(|| {
         std::env::var("HIFI_RMS_THRESHOLD")
             .ok()
             .and_then(|v| v.parse().ok())
-            .filter(|t: &f32| *t > 0.0)
+            .filter(|t: &f32| *t > 0.0 && *t < 1.0)
             .unwrap_or(DEFAULT_RMS_THRESHOLD)
     })
 }
