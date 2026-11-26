@@ -69,3 +69,7 @@ journal capped at 200 MB, `sync.log` rotated at 1 MB, systemd hardware watchdog 
 and PipeWire kept off the ClearClick so the display owns it. `/boot/firmware/config.txt` also has
 `dtparam=sd_cqe=0`: SD command queueing was hitting `mmc0: running CQE recovery` errors.
 `python3-lmdb` (apt) is required by `olaf_forget.py`.
+
+ClearClick capture gain is `Mic` = 70/255 (`amixer -c ClearClick sset Mic 70 && sudo alsactl store`;
+`alsa-restore` reapplies it at boot). At 255 a record with the equalizer on clipped (peaks +1.5 dBFS).
+At 70 the same record peaked around -5 dBFS with music RMS around -19 dBFS. Re-check if the cable moves.
