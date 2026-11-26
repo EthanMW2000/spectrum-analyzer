@@ -13,7 +13,7 @@ labwc/Wayland. The background glow, grain, vignette and scanlines are shaders.
 - **Olaf** runs as one long-lived `olaf_c query` process. The display feeds it
   16 kHz audio over stdin, so it no longer starts python + ffmpeg + olaf every
   second. Uses the existing `~/.olaf/db`.
-- **Shazam fallback**: when Olaf has had no confident match for ~9 s, the
+- **Shazam fallback**: when Olaf has had no confident match for ~9–15 s, the
   long-lived helper `shazam_worker.py` (from `~/hifi-env`) is asked, at most
   every 15 s. Its answer is used only if that song is in
   `~/.olaf/collection.json`.
