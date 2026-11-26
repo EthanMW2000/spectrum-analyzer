@@ -25,9 +25,13 @@ Interfaces it relies on (owned elsewhere): `~/.olaf/db` (Olaf LMDB, filled by
 coverUrl}}`, `tracks{id: {title, recordId}}`; reloaded when it changes) and
 fingerprint names `<trackId>.wav`.
 
-Tuning (environment variables): `HIFI_OLAF_CONFIDENT` (default 12),
+Tuning (environment variables): `HIFI_RMS_THRESHOLD` (chunk RMS that counts as
+music, default 0.02), `HIFI_OLAF_CONFIDENT` (default 12),
 `HIFI_OLAF_WEAK` (6), `HIFI_OLAF_BIN`, `HIFI_COLLECTION`, `HIFI_AUDIO_DEVICE`,
 `HIFI_FONT`, `HIFI_SHAZAM_PYTHON`, `HIFI_SHAZAM_SCRIPT`.
+
+The input level is logged every 10 s (`level: rms … dBFS, peak … dBFS, …`);
+see it with `journalctl -u hifi-display -f | grep level:`.
 
 ## Build and deploy (from a Linux PC)
 

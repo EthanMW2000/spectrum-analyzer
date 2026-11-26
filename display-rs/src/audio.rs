@@ -13,7 +13,64 @@ use realfft::RealFftPlanner;
 pub const RATE: u32 = 48000;
 pub const CHUNK: usize = 1024;
 pub const NUM_BARS: usize = 32;
-pub const RMS_THRESHOLD: f32 = 0.02;
+const DEFAULT_RMS_THRESHOLD: f32 = 0.02;
+const LEVEL_LOG_SECS: usize = 10;
+
+/// Chunk RMS above which audio counts as music (env `HIFI_RMS_THRESHOLD`, default 0.02).
+pub fn rms_threshold() -> f32 {
+    static T: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *T.get_or_init(|| {
+        std::env::var("HIFI_RMS_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|t: &f32| *t > 0.0)
+            .unwrap_or(DEFAULT_RMS_THRESHOLD)
+    })
+}
+
+fn dbfs(x: f32) -> f32 {
+    20.0 * x.max(1e-9).log10()
+}
+
+/// Input level over the last ~10 s, logged so the signal chain can be tuned.
+#[derive(Default)]
+struct LevelMeter {
+    sum_sq: f64,
+    samples: usize,
+    peak: f32,
+    max_chunk_rms: f32,
+    chunks: usize,
+    chunks_above: usize,
+}
+
+impl LevelMeter {
+    fn add(&mut self, floats: &[f32], chunk_rms: f32) {
+        for &f in floats {
+            self.sum_sq += (f * f) as f64;
+            self.peak = self.peak.max(f.abs());
+        }
+        self.samples += floats.len();
+        self.max_chunk_rms = self.max_chunk_rms.max(chunk_rms);
+        self.chunks += 1;
+        if chunk_rms >= rms_threshold() {
+            self.chunks_above += 1;
+        }
+        if self.samples >= LEVEL_LOG_SECS * RATE as usize {
+            let rms = (self.sum_sq / self.samples as f64).sqrt() as f32;
+            eprintln!(
+                "level: rms {:.1} dBFS, peak {:.1} dBFS, loudest chunk {:.1} dBFS, {}/{} chunks above threshold {} ({:.1} dBFS)",
+                dbfs(rms),
+                dbfs(self.peak),
+                dbfs(self.max_chunk_rms),
+                self.chunks_above,
+                self.chunks,
+                rms_threshold(),
+                dbfs(rms_threshold()),
+            );
+            *self = LevelMeter::default();
+        }
+    }
+}
 const FFT_SIZE: usize = 2048;
 const RING_SECS: usize = 12;
 
@@ -163,6 +220,7 @@ struct Dsp {
     freq_boost: [f32; NUM_BARS],
     band_cuts: Vec<usize>,
     band_peaks: Vec<f32>,
+    meter: LevelMeter,
 }
 
 impl Dsp {
@@ -219,6 +277,7 @@ impl Dsp {
             freq_boost,
             band_cuts,
             band_peaks: vec![0.01; n_bands],
+            meter: LevelMeter::default(),
         }
     }
 
@@ -235,6 +294,7 @@ impl Dsp {
         let mean = samples.iter().map(|&s| s as f32 / 32768.0).sum::<f32>() / n as f32;
         let floats: Vec<f32> = samples.iter().map(|&s| s as f32 / 32768.0 - mean).collect();
         let rms = (floats.iter().map(|f| f * f).sum::<f32>() / n as f32).sqrt();
+        self.meter.add(&floats, rms);
 
         self.fft_buf.copy_within(n.., 0);
         let len = self.fft_buf.len();
@@ -248,7 +308,7 @@ impl Dsp {
         }
         sh.rms = rms;
         sh.last_update = Instant::now();
-        if rms < RMS_THRESHOLD {
+        if rms < rms_threshold() {
             for b in sh.bars.iter_mut() {
                 *b *= 0.93;
             }

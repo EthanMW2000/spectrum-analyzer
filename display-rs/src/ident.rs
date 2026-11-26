@@ -19,7 +19,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use serde::Deserialize;
 
-use crate::audio::{Audio, RMS_THRESHOLD};
+use crate::audio::{Audio, rms_threshold};
 
 #[derive(Deserialize, Clone)]
 pub struct Record {
@@ -445,7 +445,7 @@ impl Worker {
             }
             self.spawn_olaf();
         }
-        let playing = self.audio.rms() > RMS_THRESHOLD;
+        let playing = self.audio.rms() > rms_threshold();
         // olaf_c prints nothing at all when it has no matches.
         if playing && self.last_block.elapsed() > Duration::from_secs(5) {
             self.last_block = Instant::now();

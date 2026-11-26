@@ -17,7 +17,7 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::keyboard::{Key, NamedKey};
 use winit::window::{Fullscreen, Window, WindowId};
 
-use audio::{Audio, RMS_THRESHOLD, Source};
+use audio::{Audio, Source, rms_threshold};
 use ident::{Collection, Identifier};
 use ui::{IMG_ART, IMG_PICK, SongView, Ui};
 
@@ -124,7 +124,7 @@ impl App {
                 self.audio.decay(0.9);
             }
             if !tap_locked {
-                if self.audio.rms() > RMS_THRESHOLD {
+                if self.audio.rms() > rms_threshold() {
                     self.last_sound = Instant::now();
                     self.idle = false;
                     ui.clear_pick();
@@ -254,6 +254,9 @@ fn main() {
         "HIFI_COLLECTION",
         home.join(".olaf/collection.json").to_string_lossy(),
     ));
+    if !args.demo {
+        eprintln!("audio: music threshold {} RMS", rms_threshold());
+    }
     let (audio, ident) = if args.demo {
         (Audio::start(Source::Fake, None), None)
     } else {
