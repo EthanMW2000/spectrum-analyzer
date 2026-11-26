@@ -590,7 +590,15 @@ fn write_wav(path: &Path, pcm: &[i16]) -> hound::Result<()> {
         bits_per_sample: 16,
         sample_format: hound::SampleFormat::Int,
     };
-    let mut w = hound::WavWriter::create(path, spec)?;
+    use std::os::unix::fs::OpenOptionsExt;
+    // Owner-only: this is a recording of whatever is playing.
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create(true)
+        .truncate(true)
+        .mode(0o600)
+        .open(path)?;
+    let mut w = hound::WavWriter::new(std::io::BufWriter::new(file), spec)?;
     for &s in pcm {
         w.write_sample(s)?;
     }
